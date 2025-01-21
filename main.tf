@@ -15,7 +15,7 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  cluster_name = "education-eks-${random_string.suffix.result}"
+  cluster_name = "5gc-${random_string.suffix.result}"
 }
 
 resource "random_string" "suffix" {
@@ -25,9 +25,9 @@ resource "random_string" "suffix" {
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "5.8.1"
+  version = "5.17.0"
 
-  name = "education-vpc"
+  name = "5gc-vpc"
 
   cidr = "10.0.0.0/16"
   azs  = slice(data.aws_availability_zones.available.names, 0, 3)
@@ -50,10 +50,10 @@ module "vpc" {
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "20.8.5"
+  version = "20.33.0"
 
   cluster_name    = local.cluster_name
-  cluster_version = "1.29"
+  cluster_version = "1.31"
 
   cluster_endpoint_public_access           = true
   enable_cluster_creator_admin_permissions = true
@@ -62,35 +62,48 @@ module "eks" {
     aws-ebs-csi-driver = {
       service_account_role_arn = module.irsa-ebs-csi.iam_role_arn
     }
+    coredns                = {}
+    eks-pod-identity-agent = {}
+    kube-proxy             = {}
+    vpc-cni                = {}
+    metrics-server         = {}
   }
 
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
+  create_node_security_group = false
+  cluster_security_group_additional_rules = {
+    allow_all_ingress = {
+      type        = "ingress"
+      from_port   = 0
+      to_port     = 65535
+      protocol    = "-1"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "Allow all traffic on all ports"
+    },
+    allow_all_egress = {
+      type        = "egress"
+      from_port   = 0
+      to_port     = 65535
+      protocol    = "-1"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "Allow all outbound traffic"
+    }
+  }
 
   eks_managed_node_group_defaults = {
     ami_type = "AL2_x86_64"
-
   }
 
   eks_managed_node_groups = {
     one = {
-      name = "node-group-1"
+      name = "node-group"
 
       instance_types = ["t3.small"]
 
       min_size     = 1
-      max_size     = 3
-      desired_size = 2
-    }
-
-    two = {
-      name = "node-group-2"
-
-      instance_types = ["t3.small"]
-
-      min_size     = 1
-      max_size     = 2
-      desired_size = 1
+      max_size     = 4
+      desired_size = 4
     }
   }
 }
@@ -103,7 +116,7 @@ data "aws_iam_policy" "ebs_csi_policy" {
 
 module "irsa-ebs-csi" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-assumable-role-with-oidc"
-  version = "5.39.0"
+  version = "5.52.2"
 
   create_role                   = true
   role_name                     = "AmazonEKSTFEBSCSIRole-${module.eks.cluster_name}"
